@@ -6,7 +6,7 @@ import voluptuous as vol  # type: ignore[import-untyped]
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers import config_validation as cv, aiohttp_client
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from pyhon import Hon
 
@@ -48,7 +48,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator: DataUpdateCoordinator[dict[str, Any]] = DataUpdateCoordinator(
         hass, _LOGGER, name=DOMAIN
     )
-    hon.subscribe_updates(coordinator.async_set_updated_data)
+
+    @callback
+    def _push_update(data: Any) -> None:
+        """Apply a pyhon push update on the event loop.
+
+        pyhon-revived delivers MQTT push notifications from the awscrt
+        network thread and invokes this subscriber synchronously (see
+        pyhon.connection.mqtt.MQTTClient._on_publish_received ->
+        Hon.notify). Calling the loop-affine ``async_set_updated_data``
+        directly from that foreign thread raises a thread-safety error on
+        HA Core 2026.5.x, so we marshal it onto the event loop.
+        """
+        hass.loop.call_soon_threadsafe(coordinator.async_set_updated_data, data)
+
+    hon.subscribe_updates(_push_update)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.unique_id] = {"hon": hon, "coordinator": coordinator}
