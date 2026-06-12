@@ -223,8 +223,12 @@ class HonACClimateEntity(HonEntity, ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         self._attr_hvac_mode = hvac_mode
         if hvac_mode == HVACMode.OFF:
-            await self._device.commands["stopProgram"].send()
+            # don't use stopProgram: it posts its whole parameter set with
+            # program defaults (tempSel 22, windSpeed reset, …), wiping the
+            # unit's current settings in the cloud and locally. Switching off
+            # via the settings command keeps them, like gvigroux/hon did.
             self._device.settings["settings.onOffStatus"].value = "0"
+            await self._device.commands["settings"].send()
         else:
             self._device.settings["settings.onOffStatus"].value = "1"
             setting = self._device.settings["settings.machMode"]
