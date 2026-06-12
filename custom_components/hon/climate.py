@@ -238,12 +238,17 @@ class HonACClimateEntity(HonEntity, ClimateEntity):
         self.schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
+        # sync_command("startProgram", "settings") blows up on enum params whose
+        # startProgram default ("0") is not a valid settings value — mirror the
+        # upstream fix for async_set_hvac_mode and only sync onOffStatus
         await self._device.commands["startProgram"].send()
-        self._device.sync_command("startProgram", "settings")
+        self._device.settings["settings.onOffStatus"].value = "1"
+        self.schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._device.commands["stopProgram"].send()
-        self._device.sync_command("stopProgram", "settings")
+        self._device.settings["settings.onOffStatus"].value = "0"
+        self.schedule_update_ha_state()
 
     @property
     def preset_mode(self) -> str | None:
