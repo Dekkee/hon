@@ -237,18 +237,32 @@ class HonACClimateEntity(HonEntity, ClimateEntity):
             await self._device.commands["settings"].send()
         self.schedule_update_ha_state()
 
+    def _sync_program_to_settings(self, program: str) -> None:
+        # Tolerant HonAppliance.sync_command("<program>", "settings"): program
+        # params lacking a defaultValue read as "0", which is not a valid enum
+        # value for some settings counterparts (e.g. windDirectionVertical) —
+        # skip those instead of raising mid-sync. No HA state write here: send()
+        # shields device attributes with command defaults for 10s, so painting
+        # state now would show reset values until the next poll.
+        base = self._device.commands.get(program)
+        target = self._device.commands.get("settings")
+        if base is None or target is None:
+            return
+        for name, target_param in target.parameters.items():
+            if (base_param := base.parameters.get(name)) is None:
+                continue
+            try:
+                self._device.sync_parameter(base_param, target_param)
+            except ValueError:
+                continue
+
     async def async_turn_on(self, **kwargs: Any) -> None:
-        # sync_command("startProgram", "settings") blows up on enum params whose
-        # startProgram default ("0") is not a valid settings value — mirror the
-        # upstream fix for async_set_hvac_mode and only sync onOffStatus
         await self._device.commands["startProgram"].send()
-        self._device.settings["settings.onOffStatus"].value = "1"
-        self.schedule_update_ha_state()
+        self._sync_program_to_settings("startProgram")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._device.commands["stopProgram"].send()
-        self._device.settings["settings.onOffStatus"].value = "0"
-        self.schedule_update_ha_state()
+        self._sync_program_to_settings("stopProgram")
 
     @property
     def preset_mode(self) -> str | None:
@@ -259,7 +273,7 @@ class HonACClimateEntity(HonEntity, ClimateEntity):
         """Set the new preset mode."""
         if program := self._device.settings.get("startProgram.program"):
             program.value = preset_mode
-        self._device.sync_command("startProgram", "settings")
+        self._sync_program_to_settings("startProgram")
         self._set_temperature_bound()
         self._handle_coordinator_update(update=False)
         self.coordinator.async_set_updated_data({})
