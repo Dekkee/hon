@@ -257,12 +257,24 @@ class HonACClimateEntity(HonEntity, ClimateEntity):
                 continue
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self._device.commands["startProgram"].send()
-        self._sync_program_to_settings("startProgram")
+        # The hOn API accepts startProgram for these ACs but the unit ignores
+        # it — power-on only works through the settings command (machMode +
+        # onOffStatus), i.e. the async_set_hvac_mode path. Restore the last
+        # mode, falling back to AUTO / the first supported mode.
+        mode = getattr(self, "_attr_hvac_mode", None)
+        if mode in (None, HVACMode.OFF):
+            mach = self._device.get("machMode")
+            mode = HON_HVAC_MODE.get(mach) if mach in HON_HVAC_MODE else None
+        if mode in (None, HVACMode.OFF) or mode not in self._attr_hvac_modes:
+            mode = (
+                HVACMode.AUTO
+                if HVACMode.AUTO in self._attr_hvac_modes
+                else next(m for m in self._attr_hvac_modes if m != HVACMode.OFF)
+            )
+        await self.async_set_hvac_mode(mode)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self._device.commands["stopProgram"].send()
-        self._sync_program_to_settings("stopProgram")
+        await self.async_set_hvac_mode(HVACMode.OFF)
 
     @property
     def preset_mode(self) -> str | None:
