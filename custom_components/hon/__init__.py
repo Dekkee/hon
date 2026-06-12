@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -45,8 +46,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry, data={**entry.data, CONF_REFRESH_TOKEN: hon.api.auth.refresh_token}
     )
 
+    async def _async_poll() -> dict[str, Any]:
+        """Periodic REST refresh as a fallback for MQTT push.
+
+        pyhon delivers live state via AWS IoT MQTT push, but that
+        subscription can silently stall with no auto-recovery short of a
+        restart. Polling on an interval bounds staleness and keeps state
+        usable even while push is dead.
+        """
+        for appliance in hon.appliances:
+            try:
+                await appliance.update()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Polling refresh failed for %s: %s",
+                    getattr(appliance, "nick_name", appliance),
+                    err,
+                )
+        return {}
+
     coordinator: DataUpdateCoordinator[dict[str, Any]] = DataUpdateCoordinator(
-        hass, _LOGGER, name=DOMAIN
+        hass,
+        _LOGGER,
+        config_entry=entry,
+        name=DOMAIN,
+        update_interval=timedelta(seconds=60),
+        update_method=_async_poll,
     )
 
     @callback
