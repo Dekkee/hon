@@ -11,9 +11,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from pyhon import Hon
 
+from . import appliance_list_patch
 from .const import DOMAIN, PLATFORMS, MOBILE_ID, CONF_REFRESH_TOKEN
 
 _LOGGER = logging.getLogger(__name__)
+
+# Work around Haier's 2026-06 appliance-list API migration: route pyhon's
+# appliance enumeration at the new unified-api endpoint so devices stop
+# showing up as unavailable. See appliance_list_patch for details.
+appliance_list_patch.apply()
 
 HON_SCHEMA = vol.Schema(
     {
